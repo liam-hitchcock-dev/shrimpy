@@ -21,7 +21,7 @@ func shellSingleQuoted(_ value: String) -> String {
 
 func currentClaudeHookCommand() -> String {
     let binaryPath = Bundle.main.bundlePath + "/Contents/MacOS/Shrimpy"
-    return "\(shellSingleQuoted(binaryPath)) \"$CLAUDE_NOTIFICATION_TITLE\""
+    return "\(shellSingleQuoted(binaryPath)) \"Claude needs your attention\" --title \"$(basename \"$CLAUDE_PROJECT_DIR\")\""
 }
 
 // MARK: - Notification History
