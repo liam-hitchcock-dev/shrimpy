@@ -448,6 +448,7 @@ class SettingsWindowController: NSWindowController {
     private var notifDot: NSTextField?
     private var notifLabel: NSTextField?
     private var notifButton: NSButton?
+    private var hookButton: NSButton?
 
     convenience init() {
         let window = NSWindow(
@@ -546,11 +547,19 @@ class SettingsWindowController: NSWindowController {
         historyButton.frame = NSRect(x: 20, y: 110, width: 200, height: 28)
         view.addSubview(historyButton)
 
+        // Configure Claude Hook button
+        let hookBtn = NSButton(title: "Configure Claude Hook", target: self, action: #selector(configureTapped))
+        hookBtn.bezelStyle = .rounded
+        hookBtn.font = NSFont.systemFont(ofSize: 13)
+        hookBtn.frame = NSRect(x: 20, y: 72, width: 200, height: 28)
+        view.addSubview(hookBtn)
+        hookButton = hookBtn
+
         // Info text
         let info = NSTextField(wrappingLabelWithString: "Hook invocations post to this running instance. Launch once via 'open /Applications/Shrimpy.app' and it persists in your menubar.")
         info.font = NSFont.systemFont(ofSize: 11)
         info.textColor = NSColor.tertiaryLabelColor
-        info.frame = NSRect(x: 20, y: 16, width: 320, height: 72)
+        info.frame = NSRect(x: 20, y: 8, width: 320, height: 58)
         view.addSubview(info)
 
         return view
@@ -616,6 +625,16 @@ class SettingsWindowController: NSWindowController {
     @objc func historyTapped() {
         if let d = NSApp.delegate as? AppDelegate {
             d.openHistory()
+        }
+    }
+
+    @objc func configureTapped() {
+        if let d = NSApp.delegate as? AppDelegate {
+            d.ensureClaudeNotificationHookInstalled()
+        }
+        hookButton?.title = "✓ Done"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.hookButton?.title = "Configure Claude Hook"
         }
     }
 }
