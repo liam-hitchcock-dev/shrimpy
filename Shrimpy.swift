@@ -20,8 +20,8 @@ func shellSingleQuoted(_ value: String) -> String {
 }
 
 func currentClaudeHookCommand() -> String {
-    let appPath = Bundle.main.bundlePath
-    return "open -gj \(shellSingleQuoted(appPath)) --args \"$CLAUDE_NOTIFICATION_TITLE\""
+    let binaryPath = Bundle.main.bundlePath + "/Contents/MacOS/Shrimpy"
+    return "\(shellSingleQuoted(binaryPath)) \"$CLAUDE_NOTIFICATION_TITLE\""
 }
 
 // MARK: - Notification History
@@ -261,6 +261,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             let matcher = (rule["matcher"] as? String) ?? ""
             var hookItems = (rule["hooks"] as? [[String: Any]]) ?? []
 
+            // Remove any stale Shrimpy commands (different path or old open -gj format)
+            let filtered = hookItems.filter { item in
+                guard let cmd = item["command"] as? String else { return true }
+                return !cmd.contains("Shrimpy.app")
+            }
+            if filtered.count != hookItems.count {
+                hookItems = filtered
+                changed = true
+            }
+
             let hasCommand = hookItems.contains {
                 ($0["type"] as? String) == "command" &&
                 ($0["command"] as? String) == hookCommand
@@ -449,10 +459,12 @@ class SettingsWindowController: NSWindowController {
     private var notifLabel: NSTextField?
     private var notifButton: NSButton?
     private var hookButton: NSButton?
+    private var hookDot: NSTextField?
+    private var hookStatusLabel: NSTextField?
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 390),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -468,43 +480,57 @@ class SettingsWindowController: NSWindowController {
     override func showWindow(_ sender: Any?) {
         super.showWindow(sender)
         refreshNotificationStatus()
+        refreshHookStatus()
     }
 
     private func buildContentView() -> NSView {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 360))
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 390))
 
         // App running status row
         let appDot = NSTextField(labelWithString: "●")
         appDot.textColor = NSColor.systemGreen
         appDot.font = NSFont.systemFont(ofSize: 14)
-        appDot.frame = NSRect(x: 20, y: 316, width: 20, height: 20)
+        appDot.frame = NSRect(x: 20, y: 346, width: 20, height: 20)
         view.addSubview(appDot)
 
         let appLabel = NSTextField(labelWithString: "Shrimpy is running")
         appLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-        appLabel.frame = NSRect(x: 44, y: 316, width: 280, height: 20)
+        appLabel.frame = NSRect(x: 44, y: 346, width: 280, height: 20)
         view.addSubview(appLabel)
 
         // Notification permission row
         let dot = NSTextField(labelWithString: "●")
         dot.font = NSFont.systemFont(ofSize: 14)
-        dot.frame = NSRect(x: 20, y: 286, width: 20, height: 20)
+        dot.frame = NSRect(x: 20, y: 316, width: 20, height: 20)
         view.addSubview(dot)
         notifDot = dot
 
         let notifLbl = NSTextField(labelWithString: "Notifications: checking…")
         notifLbl.font = NSFont.systemFont(ofSize: 13)
-        notifLbl.frame = NSRect(x: 44, y: 286, width: 180, height: 20)
+        notifLbl.frame = NSRect(x: 44, y: 316, width: 180, height: 20)
         view.addSubview(notifLbl)
         notifLabel = notifLbl
 
         let notifBtn = NSButton(title: "", target: self, action: #selector(notifButtonTapped))
         notifBtn.bezelStyle = .rounded
         notifBtn.font = NSFont.systemFont(ofSize: 12)
-        notifBtn.frame = NSRect(x: 234, y: 282, width: 106, height: 26)
+        notifBtn.frame = NSRect(x: 234, y: 312, width: 106, height: 26)
         notifBtn.isHidden = true
         view.addSubview(notifBtn)
         notifButton = notifBtn
+
+        // Claude hook status row
+        let hDot = NSTextField(labelWithString: "●")
+        hDot.font = NSFont.systemFont(ofSize: 14)
+        hDot.frame = NSRect(x: 20, y: 286, width: 20, height: 20)
+        view.addSubview(hDot)
+        hookDot = hDot
+
+        let hLabel = NSTextField(labelWithString: "Claude hook: checking…")
+        hLabel.font = NSFont.systemFont(ofSize: 13)
+        hLabel.frame = NSRect(x: 44, y: 286, width: 280, height: 20)
+        view.addSubview(hLabel)
+        hookStatusLabel = hLabel
 
         // Separator
         let separator = NSBox()
@@ -571,6 +597,24 @@ class SettingsWindowController: NSWindowController {
         }
     }
 
+    func refreshHookStatus() {
+        let settingsURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(kClaudeSettingsRelativePath)
+        let hookCommand = currentClaudeHookCommand()
+        var installed = false
+        if let data = try? Data(contentsOf: settingsURL),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let hooks = root["hooks"] as? [String: Any],
+           let rules = hooks["Notification"] as? [[String: Any]] {
+            installed = rules.contains { rule in
+                ((rule["hooks"] as? [[String: Any]]) ?? []).contains {
+                    ($0["type"] as? String) == "command" && ($0["command"] as? String) == hookCommand
+                }
+            }
+        }
+        hookDot?.textColor = installed ? .systemGreen : .systemOrange
+        hookStatusLabel?.stringValue = installed ? "Claude hook: Configured" : "Claude hook: Not configured"
+    }
+
     private func applyNotifStatus(_ status: UNAuthorizationStatus) {
         switch status {
         case .authorized:
@@ -632,6 +676,7 @@ class SettingsWindowController: NSWindowController {
         if let d = NSApp.delegate as? AppDelegate {
             d.ensureClaudeNotificationHookInstalled()
         }
+        refreshHookStatus()
         hookButton?.title = "✓ Done"
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             self?.hookButton?.title = "Configure Claude Hook"
